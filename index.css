@@ -1,0 +1,72 @@
+html, body {
+    font-size: 1.0em;
+    background-color: #171717;
+    margin: 0;
+}
+h1, p, label, span, td {
+    color: #e1e1e1;
+}
+.blue {
+    color: #42a9ff;
+}
+.error {
+    color: #ff4242;
+    display: none;
+    font-size: 0.8em;
+}
+.small {
+    font-size: 0.9em;
+}
+#top-title {
+    margin-left: 2vw;
+    display: block;
+}
+.pane {
+    background-color: #1e1e1e;
+    margin: 2.5vw auto;
+    width: 80vw;
+    padding: 2px 16px;
+}
+.indent {
+    margin-left: 32px;
+}
+a {
+    color: #42a9ff;
+}
+canvas {
+    display: inline-block;
+}
+#recent-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4vh 0;
+}
+th {
+    color: #42a9ff;
+    text-align: left;
+}
+td {
+    text-align: left;
+}
+caption {
+    color: white;
+    caption-side: bottom;
+    font-size: 0.8em;
+}
+#export {
+    padding-top: 4px;
+}
+@media (max-width:600px) {
+    .pane {
+        width: calc(100vw - 32px);
+    }
+    html, body {
+        font-size: 1.1em;
+    }
+    #chart-area, #faq {
+        font-size: 1.0em;
+    }
+    td {
+        font-size: 0.8em;
+    }
+}

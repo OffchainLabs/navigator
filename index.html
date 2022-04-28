@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta content="utf-8" http-equiv="encoding">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>Nifty Nitro Network Navigator</title>
+    <link rel="stylesheet" type="text/css" href="index.css">
+  </head>
+
+  <body>
+    <p id='top-title'>Nifty Nitro Network Navigator</p>
+
+    <div class="pane">
+      <p>Gas Prices</p>
+      <p class='error'>Failed to load data</p>
+      <canvas id='price-canvas' width='90' height='35'></canvas>
+      <table id='recent-table'>
+        <caption id='export'>blocks &thinsp;<span class='blue block-start'>0</span>&thinsp; to &thinsp;<span class='blue block-end'>0</span></caption>
+      </table>
+
+      <div class='small'>
+        <p>L1 inertia is &thinsp;<span class='blue' id="price-l1BaseFeeEstimateInertia">0</span>&thinsp; per s<sup>1/2</sup></p>
+      </div>
+    </div>
+
+    <div class="pane">
+      <p>Gas Model</p>
+      <p class='error'>Failed to load data</p>
+      <canvas id='model-canvas' width='90' height='35'></canvas>
+      <table id='recent-table'>
+        <caption id='export'>blocks &thinsp;<span class='blue block-start'>0</span>&thinsp; to &thinsp;<span class='blue block-end'>0</span></caption>
+      </table>
+
+      <div class='small'>
+        <p>Speed limit is &thinsp;<span class='blue' id="model-speedLimit">0</span>&thinsp; gas per second</p>
+        <p>Max block gas is &thinsp;<span class='blue' id="model-maxPerBlockGasLimit">0</span>&thinsp; gas</p>
+        <p>Gas pool max is &thinsp;<span class='blue' id="model-gasPoolMax">0</span>&thinsp; gas</p>
+        <p>Gas pool target is &thinsp;<span class='blue' id="model-gasPoolTarget">0</span>&thinsp; percentage points</p>
+        <p>Gas pool weight is &thinsp;<span class='blue' id="model-gasPoolWeight">0</span>&thinsp; percentage points</p>
+      </div>
+    </div>
+
+    <div class="pane">
+      <p>Retryables</p>
+      <p class='error'>Failed to load data</p>
+      <canvas id='retry-canvas' width='90' height='35'></canvas>
+      <table id='recent-table'>
+        <caption id='export'>blocks &thinsp;<span class='blue block-start'>0</span>&thinsp; to &thinsp;<span class='blue block-end'>0</span></caption>
+      </table>
+    </div>
+
+    <div class="pane">
+      <p>Timeout Queue</p>
+      <p class='error'>Failed to load data</p>
+      <canvas id='queue-canvas' width='90' height='35'></canvas>
+      <table id='recent-table'>
+        <caption id='export'>block &thinsp;<span class='blue block-end'>0</span></caption>
+      </table>
+    </div>
+
+    <div class="pane">
+      <p>Config</p>
+      <p class='error'>Failed to load data</p>
+      <div class="small">
+        <p>Blocks <input id='config-start' placeholder="start"></input> to <input id='config-end' placeholder="end"></input></p>
+        <p><input id='config-by-time' type='checkbox' checked='checked'><label for="config-by-time">&ensp;Use timestamps</label><br></p>
+      </div>
+    </div>
+  </body>
+
+  <script src='library.js'></script>
+  <script src='https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js'></script>
+  <script>
+
+    const geth_request = async (method, params) => {
+        const result = await request('http://localhost:8547/', {
+            jsonrpc: "2.0",
+            id: "0",
+            method: method,
+            params: params,
+        });
+        if (result.error) {
+            $c('.error').forEach(element => element.style.display = 'block');
+            $c('.error').forEach(element => $content(element, 'error: ' + result.error.message, null));
+            throw 'request failed';
+        }
+        return result.result;
+    };
+
+    let charts = [];
+
+    const main = async(start, end, by_time) => {
+
+        console.log(by_time);
+
+        // reset error messages and destroy any open charts
+        $c('.error').forEach(element => element.style.display = 'none');
+
+        // destroy open charts
+        for (let chart of charts) {
+            chart.destroy();
+        }
+        charts = [];
+
+        const blocks = [];
+        for (let i = start; i <= end; i++) {
+            blocks.push(i);
+        }
+
+        const data = await geth_request("arbdebug_pricingModel", [to_hex(start), to_hex(end)]);
+
+        $c('.block-start').forEach(x => $content(x, data.first));
+        $c('.block-end').forEach(x => $content(x, data.first + data.baseFee.length));
+
+        $content('price-l1BaseFeeEstimateInertia', data.l1BaseFeeEstimateInertia.toLocaleString());
+
+        let datasets = [];
+        const template = {
+            fill: false,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.0,
+            cubicInterpolationMode: 'monotone',
+        };
+        const add_data = (label, color, yaxis, data) => {
+            const dataset = { ...template };
+            dataset.label = label;
+            dataset.borderColor = color;
+            dataset.backgroundColor = color;
+            dataset.pointBackgroundColor = color;
+            dataset.yAxisID = yaxis;
+            dataset.data = data;
+            datasets.push(dataset);
+        };
+        add_data('basefee'   , '#42a9ff', 'yBaseFee', data.baseFee);
+        add_data('L1 basefee', '#42ffa9', 'yL1BaseFeeEstimate', data.l1BaseFeeEstimate);
+
+        if (by_time) {
+            for (let i = 0; i < datasets.length; i++) {
+                datasets[i].data = datasets[i].data.map(y => { return { y: y }});
+                for (let x = 0; x < datasets[i].data.length; x++) {
+                    datasets[i].data[x].x = data.timestamp[x];
+                }
+            }
+        }
+
+        const when_same = (context, yes, no) => {
+            var index = context.dataIndex;
+            var value = context.dataset.data[index].y;
+            if (data.l1BaseFeeUpdateTime[index] == data.l1BaseFeeUpdateTime[index-1]) {
+                return yes
+            }
+            return no
+        };
+        datasets[1].pointRadius          = context => when_same(context, 2, 4);
+        datasets[1].pointBorderColor     = context => when_same(context, '#42ffa9', '#ffa942');
+        datasets[1].pointBackgroundColor = context => when_same(context, '#42ffa9', '#ffa942');
+
+        const set_canvas = (canvas) => {
+            $s(canvas).width  = window.innerWidth  * 0.8 - 4;
+            $s(canvas).height = window.innerHeight * 0.6;
+        }
+        set_canvas('price-canvas')
+        set_canvas('model-canvas')
+        set_canvas('retry-canvas')
+        set_canvas('queue-canvas')
+
+        charts.push(new Chart($('price-canvas').getContext('2d'), {
+            type: by_time ? 'scatter' : 'line',
+            data: {
+                labels: blocks,
+                datasets: datasets,
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e1e1e1',
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (entry) => {
+                                let timestamp = entry[0].raw.x;
+                                let index = entry[0].dataIndex;
+                                if (!by_time) {
+                                    timestamp = entry[0].raw;
+                                }
+                                const datetime = new Date(timestamp * 1000).toLocaleString();
+                                let [date, time] = datetime.split(',');
+                                return 'Block ' + blocks[index] + ' ' + time;
+                            },
+                            label: (entry) => {
+                                return ' ' + entry.formattedValue + ' wei';
+                            },
+                        },
+                    },
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                showLine: true,
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                if (by_time) {
+                                    const datetime = new Date(value * 1000).toLocaleString();
+                                    let [date, time] = datetime.split(',');
+                                    return time;
+                                } else {
+                                    return (data.first + index);
+                                }
+                            },
+                            maxRotation: 0,
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    yBaseFee: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                return (value / 1000000000).toFixed(2)
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    yL1BaseFeeEstimate: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                return (value / 1000000000).toFixed(2)
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                        position: 'right',
+                    }
+                },
+            }
+        }));
+
+        const gasPoolTarget = data.gasPoolTarget / 100
+        const gasPoolWeight = data.gasPoolWeight / 100
+
+        $content('model-maxPerBlockGasLimit', data.maxPerBlockGasLimit.toLocaleString());
+        $content('model-gasPoolMax'         , data.gasPoolMax.toLocaleString());
+        $content('model-gasPoolTarget'      , gasPoolTarget.toLocaleString());
+        $content('model-gasPoolWeight'      , gasPoolWeight.toLocaleString());
+        $content('model-speedLimit'         , data.speedLimit.toLocaleString());
+
+        const speedLimit = data.speedLimit;
+        const gasPoolMax = data.gasPoolMax;
+        const maxPerBlockGasLimit = data.maxPerBlockGasLimit;
+
+        datasets = []
+        add_data('basefee' , '#42a9ff', 'yBaseFee', data.baseFee);
+        add_data('gas pool', '#42ffa9', 'y', data.gasPool.map(x => 100.0 * x / gasPoolMax));
+        add_data('gas used', '#ffa942', 'y', data.gasUsed.map(x => 100.0 * x / maxPerBlockGasLimit));
+        add_data('gas rate', '#ff42a9', 'y', data.rateEstimate.map(x => 100.0 * x / speedLimit));
+
+        if (by_time) {
+            for (let i = 0; i < datasets.length; i++) {
+                datasets[i].data = datasets[i].data.map(y => { return { y: y }});
+                for (let x = 0; x < datasets[i].data.length; x++) {
+                    datasets[i].data[x].x = data.timestamp[x];
+                }
+            }
+        }
+
+        charts.push(new Chart($('model-canvas').getContext('2d'), {
+            type: by_time ? 'scatter' : 'line',
+            data: {
+                labels: blocks,
+                datasets: datasets,
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e1e1e1',
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (entry) => {
+                                let timestamp = entry[0].raw.x;
+                                let index = entry[0].dataIndex;
+                                if (!by_time) {
+                                    timestamp = entry[0].raw;
+                                }
+                                const datetime = new Date(timestamp * 1000).toLocaleString();
+                                let [date, time] = datetime.split(',');
+                                return 'Block ' + blocks[index] + ' ' + time;
+                            },
+                            label: (entry) => {
+                                if (entry.datasetIndex == 0) {
+                                    return ' ' + entry.formattedValue + ' wei';
+                                } else {
+                                    return ' ' + entry.formattedValue + '%';
+                                }
+                            },
+                        },
+                    },
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                showLine: true,
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                if (by_time) {
+                                    const datetime = new Date(value * 1000).toLocaleString();
+                                    let [date, time] = datetime.split(',');
+                                    return time;
+                                } else {
+                                    return (data.first + index);
+                                }
+                            },
+                            maxRotation: 0,
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                return value.toFixed(0) + '%'
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    yBaseFee: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                return (value / 1000000000).toFixed(2)
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                        position: 'right',
+                    },
+                },
+            }
+        }));
+
+        const retry_data = await geth_request("arbdebug_timeoutQueueHistory", [to_hex(start), to_hex(end)]);
+
+        datasets = []
+        add_data('timeout queue length', '#42a9ff', 'y', retry_data);
+
+        charts.push(new Chart($('retry-canvas').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: blocks,
+                datasets: datasets,
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e1e1e1',
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (value) => {
+                                return 'Block ' + value[0].label
+                            },
+                        },
+                    },
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                showLine: true,
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            maxRotation: 0,
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#e1e1e1',
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    }
+                },
+            }
+        }));
+
+        const queue_data = await geth_request("arbdebug_timeoutQueue", [to_hex(end)]);
+
+        const timeouts = []
+        let last_timeout = 0;
+        for (let i = 0; i < queue_data.timeouts.length; i++) {
+            if (queue_data.timeouts[i] == 0) {
+                timeouts.push(last_timeout)
+            } else {
+                timeouts.push(queue_data.timeouts[i])
+                last_timeout = queue_data.timeouts[i]
+            }
+        }
+
+        datasets = []
+        template.pointRadius = 0;
+        template.pointHoverRadius = 6;
+        add_data('timeout', '#42a9ff', 'y', timeouts);
+
+        const when_zero = (context, yes, no) => {
+            var index = context.dataIndex;
+            var value = context.dataset.data[index].y;
+            if (queue_data.timeouts[index] == 0) {
+                return yes
+            }
+            return no
+        };
+        datasets[0].pointRadius          = context => when_zero(context, 4, 0);
+        datasets[0].pointBackgroundColor = context => when_zero(context, '#ff42a9', '#42ffa9');
+        datasets[0].pointBorderColor     = context => when_zero(context, '#ff42a9', '#42ffa9');
+
+        const queueChart = new Chart($('queue-canvas').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: Array.from(Array(queue_data.timeouts.length), (_, index) => index + 1),
+                datasets: datasets,
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e1e1e1',
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (value) => {
+                                return 'Entry ' + value[0].label;
+                            },
+                            footer: (value) => {
+                                const index = value[0].label - 1
+                                return queue_data.tickets[index];
+                            },
+                            label: (entry) => {
+                                const datetime = new Date(entry.raw * 1000).toLocaleString();
+                                let [date, time] = datetime.split(',');
+                                return ' ' + date + time;
+                            }
+                        },
+                        footerFont: {
+                            size: 8,
+                        }
+                    },
+                },
+                showLine: true,
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            maxRotation: 0,
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                const datetime = new Date(value * 1000).toLocaleString();
+                                let [date, time] = datetime.split(',');
+                                return date;
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    }
+                },
+            }
+        });
+        $listen('queue-canvas', 'click', event => {
+            var activePoints = queueChart.getElementsAtEventForMode(event, 'nearest', {}, false);
+            if (activePoints.length == 0) {
+                return;
+            }
+            point = activePoints[0];
+            console.log(point.index, queue_data.tickets[point.index]);
+            navigator.clipboard.writeText(queue_data.tickets[point.index]);
+        });
+        charts.push(queueChart);
+    };
+
+    (async () => {
+        let data = await geth_request("eth_blockNumber", []);
+        let end = parseInt(data, 16);
+        let start = end - 100;
+
+        await main(start, end, $('config-by-time').checked);
+
+        $('config-start').value = start;
+        $('config-end').value = end;
+
+        const recompute = async () => {
+            const start = parseInt($('config-start').value);
+            const end = parseInt($('config-end').value);
+            if (start < end) {
+                await main(start, end, $('config-by-time').checked);
+            }
+        };
+        const redo = async event => {
+            if (event.key == 'Enter') {
+                await recompute();
+            }
+        };
+        $listen('config-start'  , 'keypress',      redo);
+        $listen('config-end'    , 'keypress',      redo);
+        $listen('config-by-time', 'click'   , recompute);
+    })();
+
+  </script>
+</html>
