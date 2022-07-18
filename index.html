@@ -4,12 +4,12 @@
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
     <meta content="utf-8" http-equiv="encoding">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
-    <title>Nifty Nitro Network Navigator</title>
+    <title>Nifty Nova Network Navigator</title>
     <link rel="stylesheet" type="text/css" href="index.css">
   </head>
 
   <body>
-    <p id='top-title'>Nifty Nitro Network Navigator</p>
+    <p id='top-title'>Nifty Nova Network Navigator</p>
 
     <div class="pane">
       <p>Gas Prices</p>
@@ -18,10 +18,6 @@
       <table id='recent-table'>
         <caption id='export'>blocks &thinsp;<span class='blue block-start'>0</span>&thinsp; to &thinsp;<span class='blue block-end'>0</span></caption>
       </table>
-
-      <div class='small'>
-        <p>L1 inertia is &thinsp;<span class='blue' id="price-l1BaseFeeEstimateInertia">0</span>&thinsp; per s<sup>1/2</sup></p>
-      </div>
     </div>
 
     <div class="pane">
@@ -34,10 +30,26 @@
 
       <div class='small'>
         <p>Speed limit is &thinsp;<span class='blue' id="model-speedLimit">0</span>&thinsp; gas per second</p>
-        <p>Max block gas is &thinsp;<span class='blue' id="model-maxPerBlockGasLimit">0</span>&thinsp; gas</p>
-        <p>Gas pool max is &thinsp;<span class='blue' id="model-gasPoolMax">0</span>&thinsp; gas</p>
-        <p>Gas pool target is &thinsp;<span class='blue' id="model-gasPoolTarget">0</span>&thinsp; percentage points</p>
-        <p>Gas pool weight is &thinsp;<span class='blue' id="model-gasPoolWeight">0</span>&thinsp; percentage points</p>
+        <p>Per-block gas limit is &thinsp;<span class='blue' id="model-perBlockGasLimit">0</span>&thinsp; gas</p>
+        <p>Backlog Tolerance is &thinsp;<span class='blue' id="model-backlogTolerance">0</span>&thinsp; gas</p>
+        <p>Minimum Basefee is &thinsp;<span class='blue' id="model-minBaseFee">0</span></p>
+        <p>Pricing Inertia is &thinsp;<span class='blue' id="model-pricingInertia">0</span></p>
+      </div>
+    </div>
+
+    <div class="pane">
+      <p>L1 Gas Model</p>
+      <p class='error'>Failed to load data</p>
+      <canvas id='units-canvas' width='90' height='35'></canvas>
+      <table id='recent-table'>
+        <caption id='export'>blocks &thinsp;<span class='blue block-start'>0</span>&thinsp; to &thinsp;<span class='blue block-end'>0</span></caption>
+      </table>
+
+      <div class='small'>
+        <p>L1 inertia is &thinsp;<span class='blue' id="units-l1PricingInertia">0</span></p>
+        <p>Equilibration is &thinsp;<span class='blue' id="units-l1EquilibrationUnits">0</span></p>
+        <p>Per-unit reward is &thinsp;<span class='blue' id="units-l1PerUnitReward">0</span></p>
+        <p>Rewards go to &thinsp;<span class='blue' id="units-l1PayRewardTo">0</span></p>
       </div>
     </div>
 
@@ -92,8 +104,6 @@
 
     const main = async(start, end, by_time) => {
 
-        console.log(by_time);
-
         // reset error messages and destroy any open charts
         $c('.error').forEach(element => element.style.display = 'none');
 
@@ -111,9 +121,7 @@
         const data = await geth_request("arbdebug_pricingModel", [to_hex(start), to_hex(end)]);
 
         $c('.block-start').forEach(x => $content(x, data.first));
-        $c('.block-end').forEach(x => $content(x, data.first + data.baseFee.length));
-
-        $content('price-l1BaseFeeEstimateInertia', data.l1BaseFeeEstimateInertia.toLocaleString());
+        $c('.block-end').forEach(x => $content(x, data.first + data.baseFee.length - 1));
 
         let datasets = [];
         const template = {
@@ -123,6 +131,16 @@
             tension: 0.0,
             cubicInterpolationMode: 'monotone',
         };
+        const swizzleTime = () => {
+            if (by_time) {
+                for (let i = 0; i < datasets.length; i++) {
+                    datasets[i].data = datasets[i].data.map(y => { return { y: y }});
+                    for (let x = 0; x < datasets[i].data.length; x++) {
+                        datasets[i].data[x].x = data.timestamp[x];
+                    }
+                }
+            }
+        }
         const add_data = (label, color, yaxis, data) => {
             const dataset = { ...template };
             dataset.label = label;
@@ -134,35 +152,26 @@
             datasets.push(dataset);
         };
         add_data('basefee'   , '#42a9ff', 'yBaseFee', data.baseFee);
-        add_data('L1 basefee', '#42ffa9', 'yL1BaseFeeEstimate', data.l1BaseFeeEstimate);
+        add_data('L1 basefee', '#42ffa9', 'yBaseFee', data.l1BaseFeeEstimate);
+        swizzleTime();
 
-        if (by_time) {
-            for (let i = 0; i < datasets.length; i++) {
-                datasets[i].data = datasets[i].data.map(y => { return { y: y }});
-                for (let x = 0; x < datasets[i].data.length; x++) {
-                    datasets[i].data[x].x = data.timestamp[x];
-                }
+        const format_gas = (wei) => {
+            if (wei < 1000000) {
+                return wei.toLocaleString() + ' wei';
             }
+            if (wei < 100000000000000) {
+                return (wei / 1000000000).toLocaleString() + ' gwei';
+            }
+            return (wei / 1000000000000000000).toLocaleString() + ' eth';
         }
-
-        const when_same = (context, yes, no) => {
-            var index = context.dataIndex;
-            var value = context.dataset.data[index].y;
-            if (data.l1BaseFeeUpdateTime[index] == data.l1BaseFeeUpdateTime[index-1]) {
-                return yes
-            }
-            return no
-        };
-        datasets[1].pointRadius          = context => when_same(context, 2, 4);
-        datasets[1].pointBorderColor     = context => when_same(context, '#42ffa9', '#ffa942');
-        datasets[1].pointBackgroundColor = context => when_same(context, '#42ffa9', '#ffa942');
-
+        
         const set_canvas = (canvas) => {
             $s(canvas).width  = window.innerWidth  * 0.8 - 4;
             $s(canvas).height = window.innerHeight * 0.6;
         }
         set_canvas('price-canvas')
         set_canvas('model-canvas')
+        set_canvas('units-canvas')
         set_canvas('retry-canvas')
         set_canvas('queue-canvas')
 
@@ -182,17 +191,14 @@
                     tooltip: {
                         callbacks: {
                             title: (entry) => {
-                                let timestamp = entry[0].raw.x;
                                 let index = entry[0].dataIndex;
-                                if (!by_time) {
-                                    timestamp = entry[0].raw;
-                                }
+                                let timestamp = data.timestamp[index];
                                 const datetime = new Date(timestamp * 1000).toLocaleString();
                                 let [date, time] = datetime.split(',');
                                 return 'Block ' + blocks[index] + ' ' + time;
                             },
                             label: (entry) => {
-                                return ' ' + entry.formattedValue + ' wei';
+                                return ' ' + format_gas(by_time ? entry.raw.y : entry.raw);
                             },
                         },
                     },
@@ -226,7 +232,7 @@
                         ticks: {
                             color: '#e1e1e1',
                             callback: (value, index) => {
-                                return (value / 1000000000).toFixed(2)
+                                return format_gas(value);
                             },
                         },
                         grid: {
@@ -234,50 +240,23 @@
                             borderColor: '#e1e1e1',
                         },
                     },
-                    yL1BaseFeeEstimate: {
-                        ticks: {
-                            color: '#e1e1e1',
-                            callback: (value, index) => {
-                                return (value / 1000000000).toFixed(2)
-                            },
-                        },
-                        grid: {
-                            display: false,
-                            borderColor: '#e1e1e1',
-                        },
-                        position: 'right',
-                    }
-                },
+               },
             }
         }));
-
-        const gasPoolTarget = data.gasPoolTarget / 100
-        const gasPoolWeight = data.gasPoolWeight / 100
-
-        $content('model-maxPerBlockGasLimit', data.maxPerBlockGasLimit.toLocaleString());
-        $content('model-gasPoolMax'         , data.gasPoolMax.toLocaleString());
-        $content('model-gasPoolTarget'      , gasPoolTarget.toLocaleString());
-        $content('model-gasPoolWeight'      , gasPoolWeight.toLocaleString());
-        $content('model-speedLimit'         , data.speedLimit.toLocaleString());
-
+        
         const speedLimit = data.speedLimit;
-        const gasPoolMax = data.gasPoolMax;
-        const maxPerBlockGasLimit = data.maxPerBlockGasLimit;
+        const backlogTolerance = data.backlogTolerance * speedLimit;
+
+        $content('model-perBlockGasLimit', data.perBlockGasLimit.toLocaleString());
+        $content('model-backlogTolerance', backlogTolerance.toLocaleString());
+        $content('model-pricingInertia'  , data.pricingInertia.toLocaleString());
+        $content('model-minBaseFee'      , format_gas(data.minBaseFee));
+        $content('model-speedLimit'      , data.speedLimit.toLocaleString());
 
         datasets = []
         add_data('basefee' , '#42a9ff', 'yBaseFee', data.baseFee);
-        add_data('gas pool', '#42ffa9', 'y', data.gasPool.map(x => 100.0 * x / gasPoolMax));
-        add_data('gas used', '#ffa942', 'y', data.gasUsed.map(x => 100.0 * x / maxPerBlockGasLimit));
-        add_data('gas rate', '#ff42a9', 'y', data.rateEstimate.map(x => 100.0 * x / speedLimit));
-
-        if (by_time) {
-            for (let i = 0; i < datasets.length; i++) {
-                datasets[i].data = datasets[i].data.map(y => { return { y: y }});
-                for (let x = 0; x < datasets[i].data.length; x++) {
-                    datasets[i].data[x].x = data.timestamp[x];
-                }
-            }
-        }
+        add_data('gas backlog', '#42ffa9', 'y', data.gasBacklog.map(x => 100.0 * x / backlogTolerance));
+        swizzleTime();
 
         charts.push(new Chart($('model-canvas').getContext('2d'), {
             type: by_time ? 'scatter' : 'line',
@@ -295,18 +274,15 @@
                     tooltip: {
                         callbacks: {
                             title: (entry) => {
-                                let timestamp = entry[0].raw.x;
                                 let index = entry[0].dataIndex;
-                                if (!by_time) {
-                                    timestamp = entry[0].raw;
-                                }
+                                let timestamp = data.timestamp[index];
                                 const datetime = new Date(timestamp * 1000).toLocaleString();
                                 let [date, time] = datetime.split(',');
                                 return 'Block ' + blocks[index] + ' ' + time;
                             },
                             label: (entry) => {
                                 if (entry.datasetIndex == 0) {
-                                    return ' ' + entry.formattedValue + ' wei';
+                                    return ' ' + format_gas(by_time ? entry.raw.y : entry.raw);
                                 } else {
                                     return ' ' + entry.formattedValue + '%';
                                 }
@@ -343,7 +319,7 @@
                         ticks: {
                             color: '#e1e1e1',
                             callback: (value, index) => {
-                                return value.toFixed(0) + '%'
+                                return value + '%';
                             },
                         },
                         grid: {
@@ -355,7 +331,105 @@
                         ticks: {
                             color: '#e1e1e1',
                             callback: (value, index) => {
-                                return (value / 1000000000).toFixed(2)
+                                return format_gas(value);
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                        position: 'right',
+                    },
+                },
+            }
+        }));
+
+        
+        datasets = []
+        add_data('surplus', '#42a9ff', 'y', data.l1LastSurplus);
+        add_data('basefee', '#42ffa9', 'y', data.l1BaseFeeEstimate);
+        add_data('funds'  , '#a942ff', 'y', data.l1FundsDue);
+        add_data('rewards', '#ffa942', 'y', data.l1FundsDueForRewards);
+        add_data('units'  , '#ff42a9', 'y', data.l1UnitsSinceUpdate);
+        swizzleTime();
+
+        $content('units-l1PricingInertia', data.l1PricingInertia.toLocaleString());
+        $content('units-l1EquilibrationUnits', data.l1EquilibrationUnits.toLocaleString());
+        $content('units-l1PerUnitReward', format_gas(data.l1PerUnitReward));
+        $content('units-l1PayRewardTo', data.l1PayRewardTo);
+
+        charts.push(new Chart($('units-canvas').getContext('2d'), {
+            type: by_time ? 'scatter' : 'line',
+            data: {
+                labels: blocks,
+                datasets: datasets,
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e1e1e1',
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (entry) => {
+                                let index = entry[0].dataIndex;
+                                let timestamp = data.timestamp[index];
+                                const datetime = new Date(timestamp * 1000).toLocaleString();
+                                let [date, time] = datetime.split(',');
+                                return 'Block ' + blocks[index] + ' ' + time;
+                            },
+                            label: (entry) => {
+                                const element = by_time ? entry.raw.y : entry.raw;
+                                return ' ' + format_gas(element);
+                            },
+                        },
+                    },
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                showLine: true,
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                if (by_time) {
+                                    const datetime = new Date(value * 1000).toLocaleString();
+                                    let [date, time] = datetime.split(',');
+                                    return time;
+                                } else {
+                                    return (data.first + index);
+                                }
+                            },
+                            maxRotation: 0,
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                //return value;
+                                return format_gas(value);
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            borderColor: '#e1e1e1',
+                        },
+                    },
+                    ySmall: {
+                        ticks: {
+                            color: '#e1e1e1',
+                            callback: (value, index) => {
+                                return format_gas(value);
                             },
                         },
                         grid: {
@@ -425,7 +499,7 @@
 
         const queue_data = await geth_request("arbdebug_timeoutQueue", [to_hex(end)]);
 
-        const timeouts = []
+        const timeouts = [0]
         let last_timeout = 0;
         for (let i = 0; i < queue_data.timeouts.length; i++) {
             if (queue_data.timeouts[i] == 0) {
@@ -516,6 +590,9 @@
             }
         });
         $listen('queue-canvas', 'click', event => {
+            if (timeouts.length == 0) {
+                return;
+            }
             var activePoints = queueChart.getElementsAtEventForMode(event, 'nearest', {}, false);
             if (activePoints.length == 0) {
                 return;
