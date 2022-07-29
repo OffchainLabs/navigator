@@ -97,12 +97,12 @@
 
     let network = 'nova';
     let networks = {
-        nova:    { rpc: 'https://nova.arbitrum.io/rpc'         , kind: 'Nova'  },
-        rinkeby: { rpc: 'https://rinkeby.arbitrum.io/rpc'      , kind: 'Nitro' },
-        goerli:  { rpc: 'https://goerli-rollup.arbitrum.io/rpc', kind: 'Nitro' },
-        custom:  { rpc: ''                                     , kind: 'Novel' },
+        nova:    { rpc: () => { return 'https://nova.arbitrum.io/rpc'          }, kind: 'Nova'  },
+        rinkeby: { rpc: () => { return 'https://rinkeby.arbitrum.io/rpc'       }, kind: 'Nitro' },
+        goerli:  { rpc: () => { return 'https://goerli-rollup.arbitrum.io/rpc' }, kind: 'Nitro' },
+        custom:  { rpc: () => { return $('config-rpc-custom-url').value        }, kind: 'Novel' },
     }
-    let rpc_endpoint = networks[network].rpc;
+    let rpc_endpoint = networks[network].rpc();
 
     const geth_request = async (method, params) => {
 	let result;
@@ -643,7 +643,7 @@
             const start = parseInt($('config-start').value);
             const end = parseInt($('config-end').value);
 
-            rpc_endpoint = networks[network].rpc;
+            rpc_endpoint = networks[network].rpc();
             $content('network-kind', networks[network].kind)
 
             if (start < end) {
@@ -664,7 +664,6 @@
 
         $c('.rpc').forEach(el => $listen(el, 'click', async e => {
             network = el.value;
-            networks.custom.rpc = $('config-rpc-custom-url').value;
             await recompute();
         }))
     })();
