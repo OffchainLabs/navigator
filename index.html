@@ -76,7 +76,8 @@
       <p class='error'>Failed to load data</p>
       <div class="small">
         <p>Blocks <input id='config-start' placeholder="start"></input> to <input id='config-end' placeholder="end"></input></p>
-        <p><input id='config-by-time' type='checkbox' checked='checked'><label for="config-by-time">&ensp;Use timestamps</label><br></p>
+        <p>Endpoint <input id='config-rpc' placeholder='url'></input></p>
+        <p><input id='config-by-time' type='checkbox'><label for="config-by-time">&ensp;Use timestamps</label><br></p>
       </div>
     </div>
   </body>
@@ -85,11 +86,12 @@
   <script src='https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js'></script>
   <script>
 
-    const node_url = 'https://nova.arbitrum.io/rpc';
+    let rpc_endpoint = 'https://nova.arbitrum.io/rpc';
     const geth_request = async (method, params) => {
 	let result;
-	try {
-            result = await request(node_url, {
+        try {
+            console.log('requesting', rpc_endpoint, method);
+            result = await request(rpc_endpoint, {
 		jsonrpc: "2.0",
 		id: "0",
 		method: method,
@@ -98,7 +100,7 @@
 	} catch {
 	    $c('.error').forEach(element => element.style.display = 'block');
             $c('.error').forEach(element => $content(element, 'Failed to connect to node', null));
-	    console.log(node_url);
+	    console.log(rpc_endpoint);
 	    throw 'request failed';
 	}
 	if (result.error) {
@@ -112,6 +114,8 @@
     let charts = [];
 
     const main = async(start, end, by_time) => {
+
+        rpc_endpoint = $('config-rpc').value
 
         // reset error messages and destroy any open charts
         $c('.error').forEach(element => element.style.display = 'none');
@@ -618,10 +622,11 @@
         let end = parseInt(data, 16);
         let start = end - 100;
 
-        await main(start, end, $('config-by-time').checked);
-
         $('config-start').value = start;
         $('config-end').value = end;
+        $('config-rpc').value = rpc_endpoint;
+
+        await main(start, end, $('config-by-time').checked);
 
         const recompute = async () => {
             const start = parseInt($('config-start').value);
@@ -637,6 +642,7 @@
         };
         $listen('config-start'  , 'keypress',      redo);
         $listen('config-end'    , 'keypress',      redo);
+        $listen('config-rpc'    , 'keypress',      redo);
         $listen('config-by-time', 'click'   , recompute);
     })();
 
