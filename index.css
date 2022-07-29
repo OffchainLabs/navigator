@@ -56,6 +56,10 @@ caption {
 #export {
     padding-top: 4px;
 }
+input[type="radio"] {
+    margin: 4px 4px 4px 0px;
+    
+}
 @media (max-width:600px) {
     .pane {
         width: calc(100vw - 32px);
