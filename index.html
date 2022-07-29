@@ -85,19 +85,28 @@
   <script src='https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js'></script>
   <script>
 
+    const node_url = 'https://nova.arbitrum.io/rpc';
     const geth_request = async (method, params) => {
-        const result = await request('http://localhost:8547/', {
-            jsonrpc: "2.0",
-            id: "0",
-            method: method,
-            params: params,
-        });
-        if (result.error) {
-            $c('.error').forEach(element => element.style.display = 'block');
-            $c('.error').forEach(element => $content(element, 'error: ' + result.error.message, null));
-            throw 'request failed';
+	let result;
+	try {
+            result = await request(node_url, {
+		jsonrpc: "2.0",
+		id: "0",
+		method: method,
+		params: params,
+            });
+	} catch {
+	    $c('.error').forEach(element => element.style.display = 'block');
+            $c('.error').forEach(element => $content(element, 'Failed to connect to node', null));
+	    console.log(node_url);
+	    throw 'request failed';
+	}
+	if (result.error) {
+	    $c('.error').forEach(element => element.style.display = 'block');
+	    $c('.error').forEach(element => $content(element, 'error: ' + result.error.message, null));
+	    throw 'request failed';
         }
-        return result.result;
+	return result.result;
     };
 
     let charts = [];
@@ -350,7 +359,7 @@
         add_data('basefee', '#42ffa9', 'y', data.l1BaseFeeEstimate);
         add_data('funds'  , '#a942ff', 'y', data.l1FundsDue);
         add_data('rewards', '#ffa942', 'y', data.l1FundsDueForRewards);
-        add_data('units'  , '#ff42a9', 'y', data.l1UnitsSinceUpdate);
+        add_data('units'  , '#ff42a9', 'ySmall', data.l1UnitsSinceUpdate);
         swizzleTime();
 
         $content('units-l1PricingInertia', data.l1PricingInertia.toLocaleString());
