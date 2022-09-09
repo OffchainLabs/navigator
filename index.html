@@ -9,7 +9,7 @@
   </head>
 
   <body>
-    <p id='top-title'>Nifty <span id='network-kind'>Nova</span> Network Navigator</p>
+    <p id='top-title'>Nifty <span id='network-kind'>Nitro</span> Network Navigator</p>
 
     <div class="pane">
       <p>Gas Prices</p>
@@ -47,7 +47,9 @@
 
       <div class='small'>
         <p>L1 inertia is &thinsp;<span class='blue' id="units-l1PricingInertia">0</span></p>
-        <p>Equilibration is &thinsp;<span class='blue' id="units-l1EquilibrationUnits">0</span></p>
+        <p>Equilibration is &thinsp;<span class='blue' id="units-l1EquilibrationUnits">0</span>&thinsp; L1 gas</p>
+        <p>Per-batch cost is &thinsp;<span class='blue' id="units-l1PerBatchCost">0</span>&thinsp; L1 gas</p>
+        <p>Amortized-cost is &thinsp;<span class='blue' id="units-l1AmortizedCostCapBips">0</span>&thinsp; bips</p>
         <p>Per-unit reward is &thinsp;<span class='blue' id="units-l1PerUnitReward">0</span></p>
         <p>Rewards go to &thinsp;<span class='blue' id="units-l1PayRewardTo">0</span></p>
       </div>
@@ -75,8 +77,10 @@
       <p>Config</p>
       <p class='error'>Failed to load data</p>
       <div class="small">
-        <p>Blocks <input id='config-start' placeholder="start"></input> to <input id='config-end' placeholder="end"></input></p>
+        <p>Blocks <input id='config-start' placeholder="start"></input> to <input id='config-end' placeholder="end"></p>
         <p><fieldset>
+            <input type="radio" class='rpc' name='rpc' id='config-rpc-one' value='one' checked>
+            <span>Arbitrum One</span></input><br>
             <input type="radio" class='rpc' name='rpc' id='config-rpc-nova' value='nova' checked>
             <span>Nova</span></input><br>
             <input type="radio" class='rpc' name='rpc' id='config-rpc-rinkeby' value='rinkeby'>
@@ -84,7 +88,7 @@
             <input type="radio" class='rpc' name='rpc' id='config-rpc-goerli' value='goerli'>
             <span>Görli</span></input><br>
             <input type="radio" class='rpc' name='rpc' id='config-rpc-custom' value='custom'>
-            <input id='config-rpc-custom-url' placeholder='custom url'></input></input><br>
+            <input id='config-rpc-custom-url' placeholder='custom url' value='http://localhost:8547'></input></input><br>
         </fieldset></p>
         <p><input id='config-by-time' type='checkbox'><label for="config-by-time">&ensp;Use timestamps</label><br></p>
       </div>
@@ -95,8 +99,15 @@
   <script src='https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js'></script>
   <script>
 
-    let network = 'nova';
+    let network = 'one';
+    $c('.rpc').forEach(el => {
+	if (el.checked) {
+	    network = el.value;
+	}
+    });
+
     let networks = {
+        one:     { rpc: () => { return 'https://arb1.arbitrum.io/rpc'          }, kind: 'Nitro' },
         nova:    { rpc: () => { return 'https://nova.arbitrum.io/rpc'          }, kind: 'Nova'  },
         rinkeby: { rpc: () => { return 'https://rinkeby.arbitrum.io/rpc'       }, kind: 'Nitro' },
         goerli:  { rpc: () => { return 'https://goerli-rollup.arbitrum.io/rpc' }, kind: 'Nitro' },
@@ -140,15 +151,21 @@
         }
         charts = [];
 
+        const startHex = to_hex(start);
+        const endHex = to_hex(end);
+
+        const data = await geth_request("arbdebug_pricingModel", [startHex, endHex]);
+        const step = data.step || 1;
+        start = data.start || start;
+        end = data.end || end;
+
         const blocks = [];
-        for (let i = start; i <= end; i++) {
+        for (let i = start; i <= end; i += step) {
             blocks.push(i);
         }
 
-        const data = await geth_request("arbdebug_pricingModel", [to_hex(start), to_hex(end)]);
-
-        $c('.block-start').forEach(x => $content(x, data.first));
-        $c('.block-end').forEach(x => $content(x, data.first + data.baseFee.length - 1));
+        $c('.block-start').forEach(x => $content(x, start));
+        $c('.block-end').forEach(x => $content(x, end));
 
         let datasets = [];
         const template = {
@@ -245,7 +262,7 @@
                                     let [date, time] = datetime.split(',');
                                     return time;
                                 } else {
-                                    return (data.first + index);
+                                    return blocks[index];
                                 }
                             },
                             maxRotation: 0,
@@ -332,7 +349,7 @@
                                     let [date, time] = datetime.split(',');
                                     return time;
                                 } else {
-                                    return (data.first + index);
+                                    return blocks[index];
                                 }
                             },
                             maxRotation: 0,
@@ -374,7 +391,7 @@
         
         datasets = []
         add_data('surplus', '#42a9ff', 'y', data.l1LastSurplus);
-        add_data('basefee', '#42ffa9', 'y', data.l1BaseFeeEstimate);
+        add_data('basefee', '#42ffa9', 'ySmall', data.l1BaseFeeEstimate);
         add_data('funds'  , '#a942ff', 'y', data.l1FundsDue);
         add_data('rewards', '#ffa942', 'y', data.l1FundsDueForRewards);
         add_data('units'  , '#ff42a9', 'ySmall', data.l1UnitsSinceUpdate);
@@ -382,6 +399,8 @@
 
         $content('units-l1PricingInertia', data.l1PricingInertia.toLocaleString());
         $content('units-l1EquilibrationUnits', data.l1EquilibrationUnits.toLocaleString());
+        $content('units-l1PerBatchCost', data.l1PerBatchCost.toLocaleString());
+        $content('units-l1AmortizedCostCapBips', data.l1AmortizedCostCapBips.toLocaleString());
         $content('units-l1PerUnitReward', format_gas(data.l1PerUnitReward));
         $content('units-l1PayRewardTo', data.l1PayRewardTo);
 
@@ -429,7 +448,7 @@
                                     let [date, time] = datetime.split(',');
                                     return time;
                                 } else {
-                                    return (data.first + index);
+                                    return blocks[index];
                                 }
                             },
                             maxRotation: 0,
@@ -469,10 +488,10 @@
             }
         }));
 
-        const retry_data = await geth_request("arbdebug_timeoutQueueHistory", [to_hex(start), to_hex(end)]);
+        const retry_data = await geth_request("arbdebug_timeoutQueueHistory", [startHex, endHex]);
 
         datasets = []
-        add_data('timeout queue length', '#42a9ff', 'y', retry_data);
+        add_data('timeout queue length', '#42a9ff', 'y', retry_data.count);
 
         charts.push(new Chart($('retry-canvas').getContext('2d'), {
             type: 'line',
@@ -524,9 +543,9 @@
             }
         }));
 
-        const queue_data = await geth_request("arbdebug_timeoutQueue", [to_hex(end)]);
+        const queue_data = await geth_request("arbdebug_timeoutQueue", [endHex]);
 
-        const timeouts = [0]
+        const timeouts = []
         let last_timeout = 0;
         for (let i = 0; i < queue_data.timeouts.length; i++) {
             if (queue_data.timeouts[i] == 0) {
@@ -536,6 +555,9 @@
                 last_timeout = queue_data.timeouts[i]
             }
         }
+	if (timeouts.length == 0) {
+	    timeouts.push(0);
+	}
 
         datasets = []
         template.pointRadius = 0;
@@ -631,14 +653,16 @@
         charts.push(queueChart);
     };
 
-    (async () => {
-        let data = await geth_request("eth_blockNumber", []);
+    const latest_blocks = async () => {
+	let data = await geth_request("eth_blockNumber", []);
         let end = parseInt(data, 16);
         let start = end - 100;
 
         $('config-start').value = start;
         $('config-end').value = end;
+    };
 
+    (async () => {
         const recompute = async () => {
             const start = parseInt($('config-start').value);
             const end = parseInt($('config-end').value);
@@ -656,16 +680,20 @@
             }
         };
 
-        await recompute();
-
         $listen('config-start'  , 'keypress',      redo);
         $listen('config-end'    , 'keypress',      redo);
         $listen('config-by-time', 'click'   , recompute);
 
         $c('.rpc').forEach(el => $listen(el, 'click', async e => {
             network = el.value;
+	    rpc_endpoint = networks[network].rpc();
+            $content('network-kind', networks[network].kind)
+	    await latest_blocks();
             await recompute();
         }))
+
+        await latest_blocks();
+        await recompute();
     })();
 
   </script>

@@ -33,6 +33,14 @@ const $listen = (element, type, callback) => {
     return $s(element);
 };
 
+const auto_catch = async (lambda) => {
+    try {
+        await lambda();
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 const request = async (url, data, no_json) => {
 
     let body = data ? JSON.stringify(data) : undefined;
